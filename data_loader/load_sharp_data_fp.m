@@ -4,7 +4,7 @@
 % Fourier ptychography Microscopy on a phase defect located on IMO113715
 
 % locate the data
-folder_defect_imo = './SHARP_2014-10-09_LBNL/';
+folder_defect_imo = '../real_data/SHARP_2014-10-09_LBNL/';
 
 
 %read the data and the metadata
@@ -20,7 +20,7 @@ fc_lens = (asin(0.33/4)/lambda_m);
 dx_m = 15e-9;
 
 % fetch the region of interest
-roi_size_px = 332;
+roi_size_px = 332*2;
 [~,x_roi,y_roi] = Sharp.ROI(img_defect_imo{1},roi_size_px,16,0);
 
 % Effective image size
@@ -33,8 +33,8 @@ y_m = y_roi*dx_m;
 freq_cpm = Sharp.fs(x_m);
 %%
 % display
-imagesc(img_defect_imo{65}(:,:))
-axis image off
+% imagesc(img_defect_imo{65}(:,:))
+% axis image off
 
 %%
 
@@ -54,4 +54,22 @@ for i=1:81
     fx_c{i} = meta_defect_imo{idx}.ma_arg0.*cos(meta_defect_imo{idx}.ma_arg1*pi/180);
     fy_c{i} = meta_defect_imo{idx}.ma_arg0.*sin(meta_defect_imo{idx}.ma_arg1*pi/180);
     fprintf('%d ',i)
+end
+
+%% save readout to png files with name coding
+% specify path and name
+folder_name = '../real_data/enlarged_defect/';
+data_name = 'enlarged_defect';
+num_images = length(img);
+
+% decide scale factor
+global_max = max(cellfun(@(c) max(c(:)), img));
+
+for i = 1:81
+    fx_str = sprintf('%+0.2f', fx_c{i}); % format fx_c{i} as a string with sign and 2 decimal places
+    fy_str = sprintf('%+0.2f', fy_c{i}); % similarly for fy_c{i}
+    file_name = sprintf('%s%s_sx%s_sy%s.png', folder_name, data_name, fx_str, fy_str); % create the file name
+    scaled_img = img{i} / global_max;
+    scaled_img = uint8(scaled_img * 255);
+    imwrite(scaled_img, file_name); % write the image to a PNG file
 end
