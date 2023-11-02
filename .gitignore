@@ -1,3 +1,5 @@
 /.idea/
 /real_data/
+/sim_data/
+/backup_copy/
 .DS_Store
