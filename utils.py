@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 from scipy.special import comb
 import matplotlib.colors as mcolors
 from colorsys import hls_to_rgb
+import sympy
 
 def zernikeBasis(deg, X, Y):
     m, n = X.shape
@@ -80,9 +81,84 @@ def show_aberration(phase, pupil):
     plt.axis('off')
     plt.show()
     
+# Given Zernike coefficients, return the pupil function    
+def get_pupil_phase(z, pupil):
+    rows = np.any(pupil, axis=1)
+    cols = np.any(pupil, axis=0)
+    rmin, rmax = np.where(rows)[0][[0, -1]]
+    cmin, cmax = np.where(cols)[0][[0, -1]]
+    x = np.linspace(-1, 1, cmax-cmin+1)
+    y = np.linspace(-1, 1, rmax-rmin+1)
+    X, Y = np.meshgrid(x, y)
+    local_pupil = np.where(X**2 + Y**2 <= 1, 1, 0)
+    abe_pupil = np.zeros_like(pupil).astype(np.float64)
+    abe_pupil[rmin:rmax+1, cmin:cmax+1] = compute_pupil_function(z, len(z)-1, X, Y) * local_pupil
+    return abe_pupil
+
+# Modified from MIP library
+def bprp(Nx_prime, Ny_prime=None):
+    """
+    Generate a Binary Pseudo-Random Pattern (a.k.a modified Uniformly Redundant Array)
+    
+    Parameters:
+    Nx_prime, Ny_prime: Integers
+        Both should be prime numbers.
+        
+    Returns:
+    ura: 2D numpy array
+        2D-BPRP of size Nx_prime x Ny_prime
+    
+    References:
+    Fenimore & Cannon "Coded aperture imaging with uniformly redundant arrays"
+    dx.doi.org/10.1364/AO.17.000337
+    dx.doi.org/10.1364/AO.28.004344
+    dx.doi.org/10.1364/OE.22.019803
+    """
+    
+    if Ny_prime is None:
+        Ny_prime = Nx_prime
+
+    if not (sympy.isprime(Nx_prime) and sympy.isprime(Ny_prime)):
+        raise ValueError('Needs two prime numbers!')
+
+    # basic array
+    ba = np.zeros((Nx_prime, Ny_prime))
+
+    # K is associated with Nx_prime and M is associated with Ny_prime.
+    
+    # a simple method to implement the equations is to evaluate mod(x^2,r) for
+    # all x from 1 to r. The resulting values give the locations (I) in Cr
+    # that contains +1. All other terms in Cr are -1.
+    Cr = np.ones(Nx_prime) * -1
+    cr_idx = sorted(set(np.mod(np.arange(1, Nx_prime + 1) ** 2, Nx_prime)))
+    Cr[cr_idx] = 1
+
+    Cs = np.ones(Ny_prime) * -1
+    cs_idx = sorted(set(np.mod(np.arange(1, Ny_prime + 1) ** 2, Ny_prime)))
+    Cs[cs_idx] = 1
+
+    for ix in range(Nx_prime):
+        for jy in range(Ny_prime):
+            if ix == 0:
+                ba[ix, jy] = 0
+            elif ix != 0 and jy == 0:
+                ba[ix, jy] = 1
+            elif Cr[ix] * Cs[jy] == 1:
+                ba[ix, jy] = 1
+            else:
+                ba[ix, jy] = 0
+
+    # positive array
+    pa = ba * 2 - 1
+    # b[0, 0] has to be equal to 1 so that the sidelobes are flatter:
+    pa[0, 0] = 1
+
+    return pa
+
+
 # centered Fourier Transform
-ft = lambda signal: np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(signal)))
-ift = lambda signal: np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(signal)))
+ft = lambda signal: np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(signal)))
+ift = lambda signal: np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(signal)))
 
 # circular shifting
 def circshift2(input, x_shift_px, y_shift_px):
@@ -101,6 +177,7 @@ def colorize(z):
     c[idx] = [hls_to_rgb(a, b, 0.8) for a,b in zip(A,B)]
     return c
 
+# Complex image visualization
 def imagecc(img_complex):
     '''
     imagecc(img_complex) displays an image where amplitude is mapped
@@ -140,7 +217,7 @@ def circsum(img_in):
 
     return dcirc
 
-
+# Metrics
 def frc(img1, img2):
     ft1 = ft(img1)
     ft2 = ft(img2)
@@ -277,4 +354,66 @@ def plot_gt_cmp(object_guess, gt_obj, x_m, y_m, freq_cpm, roi_size_px, frc=False
                         img1_noised_gt, img2_noised_gt,
                         img1_noised_rec, img2_noised_rec,
                         ' (Comparison)')
-        
+
+
+def zernike_polynomial(n, m, pupil):
+    def polar_coords():
+        """Generate polar coordinates for a given size"""
+        x = np.linspace(-1, 1, cmax-cmin+1)
+        y = np.linspace(-1, 1, rmax-rmin+1)
+        X, Y = np.meshgrid(x, y)
+        R = np.sqrt(X**2 + Y**2)
+        T = np.arctan2(Y, X)
+        T = np.where(T < 0, T + 2*np.pi, T)
+        return R, T
+
+    def radial_poly(n, m, R):
+        """Calculate the radial polynomial"""
+        radial = np.zeros_like(R)
+        for s in range((n - abs(m)) // 2 + 1):
+            coef = (-1)**s * np.math.factorial(n - s)
+            coef /= np.math.factorial(s) * np.math.factorial((n + abs(m)) // 2 - s) * np.math.factorial((n - abs(m)) // 2 - s)
+            radial += coef * R**(n - 2 * s)
+        return radial
+
+    rows = np.any(pupil, axis=1)
+    cols = np.any(pupil, axis=0)
+    rmin, rmax = np.where(rows)[0][[0, -1]]
+    cmin, cmax = np.where(cols)[0][[0, -1]]
+
+    R, T = polar_coords()
+    Radial = radial_poly(n, m, R)
+    if m > 0:
+        Z = np.sqrt(2*n+2) * Radial * np.cos(m * T)
+    elif m < 0:
+        Z = -np.sqrt(2*n+2) * Radial * np.sin(m * T)
+    else:
+        Z = np.sqrt(n+1) * Radial
+
+    # Pad the Zernike polynomial to match the full pupil size
+    padded_Z = np.zeros(pupil.shape)
+    padded_Z[rmin:rmax+1, cmin:cmax+1] = Z
+    return padded_Z
+
+
+def get_lens_init(FILTER, option='plane', file_name=""):
+    FILTER = np.double(FILTER)
+    if option == 'plane':
+        lens_init = FILTER
+        abe = np.zeros(FILTER.shape)
+    elif option == 'zernike':
+        defocus_coef = 0.15
+        coma_coef = [0.075,0.075]
+        defocus = zernike_polynomial(2, 0, FILTER)
+        coma1 = zernike_polynomial(3, 1, FILTER)
+        coma2 = zernike_polynomial(3, -1, FILTER)
+        abe = (defocus_coef*defocus+ coma_coef[0]*coma1 + coma_coef[1]*coma2)*FILTER
+        lens_guess = FILTER * np.exp(1j*abe)
+        lens_init = lens_guess
+    elif option == 'file':
+        abe = np.load(file_name)
+        lens_init = FILTER * np.exp(1j*abe)
+    else:
+        raise ValueError('option must be either plane, zernike, or file')
+    # show_aberration(abe, FILTER)
+    return lens_init

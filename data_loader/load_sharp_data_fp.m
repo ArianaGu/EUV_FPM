@@ -20,7 +20,7 @@ fc_lens = (asin(0.33/4)/lambda_m);
 dx_m = 15e-9;
 
 % fetch the region of interest
-roi_size_px = 332*3;
+roi_size_px = 332;
 [~,x_roi,y_roi] = Sharp.ROI(img_defect_imo{1},roi_size_px,16,0);
 
 % Effective image size
@@ -58,8 +58,8 @@ end
 
 %% save readout to png files with name coding
 % specify path and name
-folder_name = '../real_data/enlarged_tile/';
-data_name = 'enlarged_tile';
+folder_name = '../real_data/tile/';
+data_name = 'tile';
 num_images = length(img);
 
 % decide scale factor

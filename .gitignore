@@ -3,3 +3,4 @@
 /sim_data/
 /backup_copy/
 .DS_Store
+*.pyc
