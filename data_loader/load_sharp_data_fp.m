@@ -4,11 +4,11 @@
 % Fourier ptychography Microscopy on a phase defect located on IMO113715
 
 % locate the data
-folder_defect_imo = '../real_data/SHARP_2016-04-20_LBNL/';
+folder_defect_imo = '../real_data/SHARP_2014-10-09_LBNL/';
 
 
 %read the data and the metadata
-[img_defect_imo, meta_defect_imo] = Sharp.read(folder_defect_imo,'IMO288835',16);
+[img_defect_imo, meta_defect_imo] = Sharp.read(folder_defect_imo,'IMO113715',26);
 
 % wavelength
 lambda_m = 13.5e-9;
@@ -20,7 +20,7 @@ fc_lens = (asin(0.33/4)/lambda_m);
 dx_m = 15e-9;
 
 % fetch the region of interest
-roi_size_px = 332;
+roi_size_px = 332*3;
 [~,x_roi,y_roi] = Sharp.ROI(img_defect_imo{1},roi_size_px,16,0);
 
 % Effective image size
@@ -40,7 +40,7 @@ freq_cpm = Sharp.fs(x_m);
 
 % some data processing: 
 load drift_defectimo.mat;
-for i=1:61
+for i=1:81
     % one image out of two has centered illumination, to track drift
     idx = 2*(i-1)+4;
     % remove drift, background, rotate by 1.2 deg
@@ -58,8 +58,8 @@ end
 
 %% save readout to png files with name coding
 % specify path and name
-folder_name = '../real_data/tile/';
-data_name = 'tile';
+folder_name = '../real_data/enlarged_defect/';
+data_name = 'defect';
 num_images = length(img);
 
 % decide scale factor
