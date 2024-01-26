@@ -142,7 +142,7 @@ for sx, sy in meas:
     I_low_stack.append(img_angle)
     na_calib.append([sx*fc_lens*lambda_m, sy*fc_lens*lambda_m])
     
-    if save_images:
+    if options.save_images:
         sx_str = str(sx).zfill(5)
         sy_str = str(sy).zfill(5)
         filename = f'{folder}/sim_{sx_str}_data_{sy_str}.png'
