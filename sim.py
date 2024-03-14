@@ -10,7 +10,7 @@ from PIL import Image
 parser = argparse.ArgumentParser()
 parser.add_argument('-o', '--obj', type=str, default='bprp', choices=['bprp', 'anime'], help='object type')
 parser.add_argument('-im', '--illumination_mode', type=str, default='exp', choices=['grid', 'apic', 'exp'], help='illumination mode')
-parser.add_argument('-am', '--aberration_mode', type=str, default='exp', choices=['exp', 'plane'], help='aberration mode')
+parser.add_argument('-am', '--aberration_mode', type=str, default='plane', choices=['exp', 'plane'], help='aberration mode')
 parser.add_argument('-kwd', '--keyword', type=str, default='bprp_abe00', help='used for saving the simulated data')
 parser.add_argument('-f', '--folder', type=str, default='./sim_data/', help='folder to save the simulated data')
 parser.add_argument('-ip', '--illumination_perturb', type=float, default=0, help='perturbation of the illumination position')
@@ -43,7 +43,11 @@ freq_cpm = np.arange(0, fs, df) - (fs - Nfft % 2 * df) / 2
 fc_lens = (np.arcsin(.33/4)/lambda_m)
 # lens pupil filter in reciprocal space
 Fx, Fy = np.meshgrid(freq_cpm, freq_cpm)
-FILTER = (Fx**2 + Fy**2) <= fc_lens**2
+# FILTER = (Fx**2 + Fy**2) <= fc_lens**2
+a = fc_lens  # semi-major axis
+b = fc_lens / 2  # semi-minor axis
+FILTER = ((Fx/a)**2 + (Fy/b)**2) <= 1
+
 
 #%% Load calibrated aberration data
 mat = scipy.io.loadmat('./real_data/aberrations_full_FOV_angleCorrected_512_zernike.mat')
@@ -150,10 +154,18 @@ for sx, sy in meas:
         img_pil.save(filename)
 
 np.save(f'{folder}gt.npy', obj)
-np.save(f'{folder}/gt_abe.npy', abe)
+np.save(f'{folder}gt_abe.npy', abe)
 I_low = np.stack(I_low_stack, axis=2)
 na_calib = np.array(na_calib)
 freqXY_calib = na_calib*na_rp_cal/na_cal+roi_size_px/2+1 # Shift to the center of the FOV
 
+
+# generate ideal filter
+ideal_filter = FILTER
+for sx, sy in meas:
+    X0 = round(sx*fc_lens*Dx_m)
+    Y0 = round(sy*fc_lens*Dx_m)
+    ideal_filter = np.logical_or(ideal_filter, circshift2(FILTER, X0, Y0))
+
 scipy.io.savemat(f'{folder}/{options.keyword}.mat', {'I_low': I_low, 'freqXY_calib': freqXY_calib, 'na_calib': na_calib,
-                                             'na_cal': na_cal, 'na_rp_cal': na_rp_cal, 'gt_CTF': abe_FILTER})
+                                             'na_cal': na_cal, 'na_rp_cal': na_rp_cal, 'gt_CTF': abe_FILTER, 'ideal_CTF': ideal_filter})

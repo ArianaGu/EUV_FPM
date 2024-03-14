@@ -227,7 +227,7 @@ def frc(img1, img2):
     n_vox = np.sum(np.ones(img1.shape))
     halfbit_threshold = (0.2071 + 1.9102 / np.sqrt(n_vox)) / (1.2071 + 0.9102 / np.sqrt(n_vox))
 
-    return frc_array, halfbit_threshold
+    return np.abs(frc_array), halfbit_threshold
 
 
 class frc_plot():
@@ -412,6 +412,25 @@ def get_lens_init(FILTER, option='plane', file_name=""):
         lens_init = lens_guess
     elif option == 'file':
         abe = np.load(file_name)
+        # resize abe to the size of the pupil
+        from scipy.ndimage import zoom
+        def resize_complex_array(complex_array, target_shape):
+            # Split the complex array into real and imaginary parts
+            real_part = complex_array.real
+            imaginary_part = complex_array.imag
+
+            # Calculate the zoom factors for each dimension
+            zoom_factors = [t / s for s, t in zip(complex_array.shape, target_shape)]
+
+            # Resize the real and imaginary parts
+            resized_real = zoom(real_part, zoom_factors, order=3)  # order=3 for cubic interpolation
+            resized_imag = zoom(imaginary_part, zoom_factors, order=3)
+
+            # Recombine the parts into a complex array
+            resized_complex_array = resized_real + 1j * resized_imag
+
+            return resized_complex_array
+        abe = resize_complex_array(abe, FILTER.shape)
         lens_init = FILTER * np.exp(1j*abe)
     else:
         raise ValueError('option must be either plane, zernike, or file')

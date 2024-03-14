@@ -4,3 +4,4 @@
 /backup_copy/
 .DS_Store
 *.pyc
+/__pycache__/

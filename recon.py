@@ -8,18 +8,19 @@ import time
 from utils import *
 
 
-folder = './sim_data/bprp_abe00/'
-use_mat = True
+folder = './real_data/full_tile/'
+equalization = False                     # Enable for real data
+use_mat = False
 keyword = 'bprp_abe00'
-roi_size_px = 332*3
-use_ROI = True
+roi_size_px = 332*5
+use_ROI = False
 ROI_length = 332
-ROI_center =  [int(roi_size_px/2), int(roi_size_px/2)]
-init_option = 'plane'                   # 'exp' 'plane' 'file'
-file_name = './real_data/enlarged_defect/result/GN_abe.npy'
+ROI_center =  [int(roi_size_px/2)+332*2, int(roi_size_px/2)+332]
+init_option = 'plane'                   # 'zernike' 'plane' 'file'
+file_name = f'{folder}gt_abe.npy'
 
 recon_alg = 'GN'                        # 'GS', 'GN', 'EPFR'
-iters = 100
+iters = 20 
 swap_dim = False
 
 #%% Set up parameters
@@ -46,6 +47,9 @@ fc_lens = (np.arcsin(.33/4)/lambda_m)
 # lens pupil filter in reciprocal space
 Fx, Fy = np.meshgrid(freq_cpm, freq_cpm)
 FILTER = (Fx**2 + Fy**2) <= fc_lens**2
+# a = fc_lens  # semi-major axis
+# b = fc_lens / 2  # semi-minor axis
+# FILTER = ((Fx/a)**2 + (Fy/b)**2) <= 1
 
 #%% Load data
 if not use_mat:
@@ -59,8 +63,8 @@ if not use_mat:
         img_0 = np.array(Image.open(filename)).astype(float)
         img.append(img_0)
         filename = os.path.basename(filename)
-        # sx_0 = float(filename[-17:-12])
-        sx_0 = float(filename[-20:-15])
+        sx_0 = float(filename[-17:-12])
+        # sx_0 = float(filename[-20:-15])
         sy_0 = float(filename[-9:-4])
         sx.append(sx_0)
         sy.append(sy_0)
@@ -79,6 +83,22 @@ print(f"Reconstructing with {len(img)} images")
     
 if swap_dim:
     sx, sy = sy, sx
+    
+if equalization:
+    # Equalize each patch
+    patch_size = 332
+    for im in img:
+        # calculate the energy of central patch
+        cen_energy = np.sum(img[0][patch_size: 2*patch_size, patch_size: 2*patch_size])
+        # equalize the energy of all patches
+        for i in range(3):
+            for j in range(3):
+                im[i*patch_size: (i+1)*patch_size, j*patch_size: (j+1)*patch_size] *= cen_energy / np.sum(
+                    im[i*patch_size: (i+1)*patch_size, j*patch_size: (j+1)*patch_size])
+    # Equalize the energy of all images
+    energy = np.sum(img[0])
+    for im in img:
+        im *= energy / np.sum(im)
 
 #%% Crop ROI
 if use_ROI:
@@ -119,13 +139,11 @@ if recon_alg == 'GS':
             S_n = object_guess
             S_p = ft(S_n)
 
-            # X0 = round(sx[idx]*fc_lens*Dx_m)
-            # Y0 = round(sy[idx]*fc_lens*Dx_m)
-            X0 = X[idx]
-            Y0 = Y[idx]
+            X0 = round(sx[idx]*fc_lens*Dx_m)
+            Y0 = round(sy[idx]*fc_lens*Dx_m)
 
-            mask = circshift2(FILTER, Y0, X0)
-            aberrated_mask = circshift2(lens_guess, Y0, X0)
+            mask = circshift2(FILTER, X0, Y0)
+            aberrated_mask = circshift2(lens_guess, X0, Y0)
             phi_n = aberrated_mask * S_p
             Phi_n = ift(phi_n)
             Phi_np = np.sqrt(img[idx]) * np.exp(1j*np.angle(Phi_n))
@@ -243,11 +261,19 @@ if not os.path.exists(f'{folder}/result'):
 np.save(f'{folder}/result/{recon_alg}_recon.npy', object_guess)
 np.save(f'{folder}/result/{recon_alg}_abe.npy', np.angle(lens_guess)*FILTER)
 
+
 plt.imshow(np.abs(object_guess), extent=[x_m[0]*1e9, x_m[-1]*1e9, y_m[0]*1e9, y_m[-1]*1e9], cmap='gray')
 plt.xlabel('x position (nm)')
 plt.ylabel('y position (nm)')
 plt.title(f'{recon_alg} reconstruction (amplitude)')
 plt.savefig(f'{folder}/result/obj_recon_amp.png', bbox_inches='tight')
+
+# save to full resolution image
+import imageio
+norm_image = np.abs(object_guess)**2
+norm_image = (255*norm_image/np.max(norm_image)).astype(np.uint8) 
+imageio.imwrite(f'{folder}/result/recon.png', norm_image)
+
 
 plt.imshow(np.angle(object_guess), extent=[x_m[0]*1e9, x_m[-1]*1e9, y_m[0]*1e9, y_m[-1]*1e9], cmap='gray')
 plt.xlabel('x position (nm)')

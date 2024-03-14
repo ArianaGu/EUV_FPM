@@ -3711,7 +3711,8 @@ classdef Sharp < handle
                 elseif nargin==2
                     b_roi = (1:roi_size_px)-(roi_size_px+mod(roi_size_px,2))/2;
                     x_roi = b_roi+sweet(1);
-                    y_roi = 2048+b_roi-sweet(2);
+                    % !!! +33 only to account for 5x extension
+                    y_roi = 2048+b_roi-sweet(2)+33;
                 else
                     error('too many arguments')
                 end
