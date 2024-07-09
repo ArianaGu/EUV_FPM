@@ -7,20 +7,28 @@ import scipy.io
 import time
 from utils import *
 
+# take arguments from command line
+import argparse
+parser = argparse.ArgumentParser(description='WFE correction parameter tuning')
+parser.add_argument('--alpha', type=float, default=1, help='WFE correction parameter')
+args = parser.parse_args()
 
-folder = './real_data/full_tile/'
+folder = './real_data/lines2/'
+elliptical_pupil = False                 # Whether to use 0.55 elliptical pupil or 0.33 circular pupil
+pre_process = True                      # Preprocess the data by applying spectrum support and filtering
 equalization = False                     # Enable for real data
-use_mat = False
-keyword = 'bprp_abe00'
-roi_size_px = 332*5
-use_ROI = False
+wfe_correction = False                   # k-illumination correction
+data_format = 'npz'                    # 'npz' 'mat' 'img'
+keyword = 'CD60cb'
+roi_size_px = 332*2
+use_ROI = True
 ROI_length = 332
-ROI_center =  [int(roi_size_px/2)+332*2, int(roi_size_px/2)+332]
+ROI_center =  [int(roi_size_px/2), int(roi_size_px/2)]
 init_option = 'plane'                   # 'zernike' 'plane' 'file'
 file_name = f'{folder}gt_abe.npy'
 
 recon_alg = 'GN'                        # 'GS', 'GN', 'EPFR'
-iters = 20 
+iters = 100
 swap_dim = False
 
 #%% Set up parameters
@@ -41,20 +49,27 @@ fs = 1 / (x_m[1] - x_m[0])
 Nfft = len(x_m)
 df = fs / Nfft
 freq_cpm = np.arange(0, fs, df) - (fs - Nfft % 2 * df) / 2
-
-# frequency cut-off of the lens (0.33 4xNA lens)
-fc_lens = (np.arcsin(.33/4)/lambda_m)
-# lens pupil filter in reciprocal space
 Fx, Fy = np.meshgrid(freq_cpm, freq_cpm)
-FILTER = (Fx**2 + Fy**2) <= fc_lens**2
-# a = fc_lens  # semi-major axis
-# b = fc_lens / 2  # semi-minor axis
-# FILTER = ((Fx/a)**2 + (Fy/b)**2) <= 1
+
+if elliptical_pupil:
+    fc_lens = (np.arcsin(.55/4)/lambda_m)
+    a = fc_lens  # semi-major axis
+    b = fc_lens / 2  # semi-minor axis
+    FILTER = ((Fx/a)**2 + (Fy/b)**2) <= 1
+
+    # # Take 20% obscuration into account
+    a_ob = a*0.2
+    b_ob = b*0.2
+    FILTER[(Fx/a_ob)**2 + (Fy/b_ob)**2 <= 1] = 0
+else:
+    fc_lens = (np.arcsin(.33/4)/lambda_m)
+    FILTER = (Fx**2 + Fy**2) <= fc_lens**2
+
 
 #%% Load data
-if not use_mat:
+if data_format == 'img':
     # Find all .png files in the folder
-    files = glob.glob(os.path.join(folder, "*.png"))
+    files = glob.glob(os.path.join(folder, f"{keyword}_sx*.png"))
     img = []
     sx = []
     sy = []
@@ -69,7 +84,7 @@ if not use_mat:
         sx.append(sx_0)
         sy.append(sy_0)
 
-else:
+elif data_format == 'mat':
     path = folder + keyword + '.mat'
     data = scipy.io.loadmat(path)
     img = data['I_low']
@@ -79,8 +94,40 @@ else:
     sx = [na_calib[i, 0] for i in range(na_calib.shape[0])]
     sy = [na_calib[i, 1] for i in range(na_calib.shape[0])]
     
+elif data_format == 'npz':
+    path = folder + keyword + '.npz'
+    data = np.load(path)
+    img = data['imgs']
+    img = [img[i,:,:] for i in range(img.shape[0])]
+    sx = data['sx']
+    sy = data['sy']
+    
+    
 print(f"Reconstructing with {len(img)} images")
     
+if pre_process:
+    binaryMask = (Fx**2 + Fy**2) <= (2*fc_lens)**2
+    
+    # Taper the edge to avoid ringing effect
+    from scipy.ndimage import gaussian_filter
+    xsize, ysize = img[0].shape[:2]
+    edgeMask = np.zeros((xsize, ysize))
+    pixelEdge = 3
+    edgeMask[0:pixelEdge, :] = 1
+    edgeMask[-pixelEdge:, :] = 1
+    edgeMask[:, 0:pixelEdge] = 1
+    edgeMask[:, -pixelEdge:] = 1
+    edgeMask = gaussian_filter(edgeMask, sigma=5)
+    maxEdge = np.max(edgeMask)
+    edgeMask = (maxEdge - edgeMask) / maxEdge
+
+
+    for i in range(len(img)):
+        ftTemp = ft(img[i])
+        noiseLevel = max(np.finfo(float).eps, np.mean(np.abs(ftTemp[~binaryMask])))
+        ftTemp = ftTemp * np.abs(ftTemp) / (np.abs(ftTemp) + noiseLevel)
+        img[i] = ift(ftTemp * binaryMask) * edgeMask
+
 if swap_dim:
     sx, sy = sy, sx
     
@@ -99,6 +146,28 @@ if equalization:
     energy = np.sum(img[0])
     for im in img:
         im *= energy / np.sum(im)
+
+if wfe_correction:
+    sx = np.array(sx)
+    sy = np.array(sy)
+    kx = sx * fc_lens
+    ky = sy * fc_lens
+    k = 1 / lambda_m
+    kz = np.sqrt(k**2 - kx**2 - ky**2)
+    phi = np.arccos(kz / k)
+
+    xc_m = (ROI_center[0]-int(roi_size_px/2))*dx_m
+    yc_m = (ROI_center[1]-int(roi_size_px/2))*dx_m
+    r_m = np.sqrt(xc_m**2 + yc_m**2)
+    delta_phi = 2*8*lambda_m/((10*1e-6)**2)*r_m
+            
+    delta_sx = delta_phi/(fc_lens*lambda_m)*yc_m/r_m
+    delta_sy = delta_phi/(fc_lens*lambda_m)*xc_m/r_m
+    sx_corrected = sx + args.alpha * delta_sx
+    sy_corrected = sy + args.alpha * delta_sy
+
+    sx, sy = sx_corrected, sy_corrected
+
 
 #%% Crop ROI
 if use_ROI:
@@ -267,6 +336,9 @@ plt.xlabel('x position (nm)')
 plt.ylabel('y position (nm)')
 plt.title(f'{recon_alg} reconstruction (amplitude)')
 plt.savefig(f'{folder}/result/obj_recon_amp.png', bbox_inches='tight')
+
+# save with wfr correction parameters
+plt.savefig(f'{folder}/result/alpha{args.alpha}.png', bbox_inches='tight')
 
 # save to full resolution image
 import imageio
