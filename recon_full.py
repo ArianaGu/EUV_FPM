@@ -6,29 +6,43 @@ import glob
 import scipy.io
 import time
 from utils import *
-import cv2
-from cv2 import seamlessClone
+# import cv2
+# from cv2 import seamlessClone
 
 
-folder = './real_data/full_tile/'
-equalization = False                     # Enable for real data
-use_mat = False
-keyword = 'bprp_abe00'
-roi_size_px = 332*5
-ROI_length = 332
-init_option = 'plane'                   # 'exp' or 'plane'
-file_name = f'{folder}/gt_abe.npy'
+folder = './real_data/lines/'
+phase_object = True
+elliptical_pupil = True                 # Whether to use 0.55 elliptical pupil or 0.33 circular pupil
+pre_process = False                      # Preprocess the data by applying spectrum support and filtering
+equalization = False                    # Enable for real data
+wfe_correction = False                  # k-illumination correction
+wfe_alpha = 0.1
+data_format = 'npz'                     # 'npz' 'mat' 'img'
+save_mat = True
+keyword = 'CD60eb'
+index_to_exclude = [14, 15]                 #[19, 20] for BPRA
+index_to_exclude = [19, 20] 
 
+roi_size_px = 332*2
+init_option = 'plane'                   # 'zernike' 'plane' 'file'
+file_name = f'{folder}gt_abe.npy'
+
+
+ROI_length = 256
+patch_num = 3
 recon_alg = 'GN'                        # 'GS', 'GN', 'EPFR'
-iters = 20
+abe_correction = True
+iters = 25
 swap_dim = False
 
 #%% Set up parameters
 # wavelength of acquisition
 lambda_m = 13.5e-9
 
-# effective pixel size
-dx_m = 15e-9
+if elliptical_pupil:
+    dx_m = 10.8e-9
+else:
+    dx_m = 15e-9
 # effective field size
 Dx_m = roi_size_px * dx_m
 
@@ -41,17 +55,27 @@ fs = 1 / (x_m[1] - x_m[0])
 Nfft = len(x_m)
 df = fs / Nfft
 freq_cpm = np.arange(0, fs, df) - (fs - Nfft % 2 * df) / 2
-
-# frequency cut-off of the lens (0.33 4xNA lens)
-fc_lens = (np.arcsin(.33/4)/lambda_m)
-# lens pupil filter in reciprocal space
 Fx, Fy = np.meshgrid(freq_cpm, freq_cpm)
-FILTER = (Fx**2 + Fy**2) <= fc_lens**2
+
+if elliptical_pupil:
+    fc_lens = (np.arcsin(.55/4)/lambda_m)
+    a = fc_lens  # semi-major axis
+    b = fc_lens / 2  # semi-minor axis
+    FILTER = ((Fx/a)**2 + (Fy/b)**2) <= 1
+
+    # # Take 20% obscuration into account
+    a_ob = a*0.2
+    b_ob = b*0.2
+    FILTER[(Fx/a_ob)**2 + (Fy/b_ob)**2 <= 1] = 0
+else:
+    fc_lens = (np.arcsin(.33/4)/lambda_m)
+    FILTER = (Fx**2 + Fy**2) <= fc_lens**2
+
 
 #%% Load data
-if not use_mat:
+if data_format == 'img':
     # Find all .png files in the folder
-    files = glob.glob(os.path.join(folder, "*.png"))
+    files = glob.glob(os.path.join(folder, f"{keyword}_sx*.png"))
     img = []
     sx = []
     sy = []
@@ -66,7 +90,7 @@ if not use_mat:
         sx.append(sx_0)
         sy.append(sy_0)
 
-else:
+elif data_format == 'mat':
     path = folder + keyword + '.mat'
     data = scipy.io.loadmat(path)
     img = data['I_low']
@@ -76,12 +100,47 @@ else:
     sx = [na_calib[i, 0] for i in range(na_calib.shape[0])]
     sy = [na_calib[i, 1] for i in range(na_calib.shape[0])]
     
+elif data_format == 'npz':
+    path = folder + keyword + '.npz'
+    data = np.load(path)
+    img = data['imgs']
+    img = [img[i,:,:] for i in range(img.shape[0])]
+    sx = data['sx']
+    sy = data['sy']
+    
+if index_to_exclude is not None:
+    img = [img[i] for i in range(len(img)) if i+1 not in index_to_exclude]
+    sx = [sx[i] for i in range(len(sx)) if i+1 not in index_to_exclude]
+    sy = [sy[i] for i in range(len(sy)) if i+1 not in index_to_exclude]
+
 print(f"Reconstructing with {len(img)} images")
     
-if swap_dim:
-    sx, sy = sy, sx
+if pre_process:
+    binaryMask = (Fx**2 + Fy**2) <= (2*fc_lens)**2
+    
+    # Taper the edge to avoid ringing effect
+    from scipy.ndimage import gaussian_filter
+    xsize, ysize = img[0].shape[:2]
+    edgeMask = np.zeros((xsize, ysize))
+    pixelEdge = 3
+    edgeMask[0:pixelEdge, :] = 1
+    edgeMask[-pixelEdge:, :] = 1
+    edgeMask[:, 0:pixelEdge] = 1
+    edgeMask[:, -pixelEdge:] = 1
+    edgeMask = gaussian_filter(edgeMask, sigma=5)
+    maxEdge = np.max(edgeMask)
+    edgeMask = (maxEdge - edgeMask) / maxEdge
 
+
+    for i in range(len(img)):
+        ftTemp = ft(img[i])
+        noiseLevel = max(np.finfo(float).eps, np.mean(np.abs(ftTemp[~binaryMask])))
+        ftTemp = ftTemp * np.abs(ftTemp) / (np.abs(ftTemp) + noiseLevel)
+        img[i] = ift(ftTemp * binaryMask) * edgeMask
+
+    
 if equalization:
+    # Equalize each patch
     patch_size = 332
     for im in img:
         # calculate the energy of central patch
@@ -89,18 +148,79 @@ if equalization:
         # equalize the energy of all patches
         for i in range(3):
             for j in range(3):
-                im[i*patch_size: (i+1)*patch_size, j*patch_size: (j+1)*patch_size] *= np.sum(
-                    im[i*patch_size: (i+1)*patch_size, j*patch_size: (j+1)*patch_size])/cen_energy
+                im[i*patch_size: (i+1)*patch_size, j*patch_size: (j+1)*patch_size] *= cen_energy / np.sum(
+                    im[i*patch_size: (i+1)*patch_size, j*patch_size: (j+1)*patch_size])
+    # Equalize the energy of all images
+    energy = np.sum(img[0])
+    for im in img:
+        im *= energy / np.sum(im)
+
+if wfe_correction:
+    sx = np.array(sx)
+    sy = np.array(sy)
+    kx = sx * fc_lens
+    ky = sy * fc_lens
+    k = 1 / lambda_m
+    kz = np.sqrt(k**2 - kx**2 - ky**2)
+    phi = np.arccos(kz / k)
+    center = [roi_size_px//2, roi_size_px//2]
+    xc_m = (center[0]-int(roi_size_px/2))*dx_m
+    yc_m = (center[1]-int(roi_size_px/2))*dx_m
+    r_m = np.sqrt(xc_m**2 + yc_m**2)
+    delta_phi = 2*8*lambda_m/((10*1e-6)**2)*r_m
+            
+    delta_sx = delta_phi/(fc_lens*lambda_m)*yc_m/r_m
+    delta_sy = delta_phi/(fc_lens*lambda_m)*xc_m/r_m
+    sx_corrected = sx + wfe_alpha * delta_sx
+    sy_corrected = sy + wfe_alpha * delta_sy
+
+    sx, sy = sx_corrected, sy_corrected
+
+
+if elliptical_pupil:
+    a = fc_lens  # semi-major axis
+    b = fc_lens / 2  # semi-minor axis
+    X_full = [sx*a*Dx_m for sx in sx]
+    Y_full = [sy*b*Dx_m for sy in sy]
+else:
+    X_full = [sx*fc_lens*Dx_m for sx in sx]
+    Y_full = [sy*fc_lens*Dx_m for sy in sy]
+X = [int(x/roi_size_px*ROI_length) for x in X_full]
+Y = [int(y/roi_size_px*ROI_length) for y in Y_full]
+    
+
+Dx_m = ROI_length * dx_m
+Nfft = ROI_length
+df = fs / Nfft
+freq_cpm = np.arange(0, fs, df) - (fs - Nfft % 2 * df) / 2
+Fx, Fy = np.meshgrid(freq_cpm, freq_cpm)
+if elliptical_pupil:
+    fc_lens = (np.arcsin(.55/4)/lambda_m)
+    a = fc_lens
+    b = fc_lens / 2
+    FILTER = ((Fx/a)**2 + (Fy/b)**2) <= 1
+    a_ob = a*0.2
+    b_ob = b*0.2
+    FILTER[(Fx/a_ob)**2 + (Fy/b_ob)**2 <= 1] = 0
+else:
+    fc_lens = (np.arcsin(.33/4)/lambda_m)
+    FILTER = (Fx**2 + Fy**2) <= fc_lens**2
+
+print('FILTER shape:', FILTER.shape)
+
+if swap_dim:
+    X, Y = Y, X
+
 
 #%% Crop ROI
-def GN_recon(img, X, Y, spectrum_guess, lens_guess, iters):
+def GN_recon(patch_img, X, Y, spectrum_guess, lens_guess, iters):
     alpha = 1
     beta = 1000
     step_size = 0.1
     paddingHighRes = 4
 
     # Upsample
-    Np = img[0].shape[0]
+    Np = patch_img[0].shape[0]
     N_obj = Np * paddingHighRes
     def downsamp(x, cen, Np):
         start_row = cen[0] - np.floor(Np/2)
@@ -120,8 +240,8 @@ def GN_recon(img, X, Y, spectrum_guess, lens_guess, iters):
     cen0 = [(N_obj+1)//2, (N_obj+1)//2]
 
     for _ in range(iters):
-        for idx in range(len(img)):
-            I_mea = img[idx]
+        for idx in range(len(patch_img)):
+            I_mea = patch_img[idx]
             X0 = round(X[idx])
             Y0 = round(Y[idx])
             # flip the oder to stay consistent with GS and EPFR
@@ -144,8 +264,9 @@ def GN_recon(img, X, Y, spectrum_guess, lens_guess, iters):
             O1 = downsamp(O, cen, Np)
             dO = step_size * 1 / np.max(np.abs(P)) * np.abs(P) * np.conj(P) * dPsi / (np.abs(P) ** 2 + alpha)
             O[int(start_row):int(end_row), int(start_col):int(end_col)] += dO
-            dP = 1 / Omax * (np.abs(O1) * np.conj(O1)) * dPsi / (np.abs(O1) ** 2 + beta)
-            P += dP * FILTER
+            if abe_correction:
+                dP = 1 / Omax * (np.abs(O1) * np.conj(O1)) * dPsi / (np.abs(O1) ** 2 + beta) * FILTER
+                P += dP
     
     O = downsamp(O, cen0, Np)
     object_guess = ift(O)
@@ -214,53 +335,48 @@ def EPFR_recon(img, X, Y, object_guess, lens_guess, iters):
     return object_guess, lens_guess
 
 #%% Reconstruct
-patch_num = 6
-Dx_m = ROI_length * dx_m
-Nfft = ROI_length
-df = fs / Nfft
-freq_cpm = np.arange(0, fs, df) - (fs - Nfft % 2 * df) / 2
-Fx, Fy = np.meshgrid(freq_cpm, freq_cpm)
-FILTER = (Fx**2 + Fy**2) <= fc_lens**2
-X = [(i*fc_lens*Dx_m) for i in sx]
-Y = [(i*fc_lens*Dx_m) for i in sy]
 lens_init = get_lens_init(FILTER, init_option, file_name)
-lens_guess = np.complex128(lens_init)
-object_full = np.zeros((roi_size_px, roi_size_px), dtype=np.complex128)
-weight_map = np.zeros((roi_size_px, roi_size_px))
+lens_init = np.complex128(lens_init)
+
 # create 2D Gaussian mask
 mask = np.zeros((ROI_length, ROI_length))
 # Define Gaussian parameters
-sigma_x = sigma_y = ROI_length / 6  # Standard deviation (adjust as needed)
+sigma_x = sigma_y = ROI_length / 4  # Standard deviation (adjust as needed)
 mu_x = mu_y = ROI_length / 2  # Center of the Gaussian
 # Create 2D Gaussian mask
 y, x = np.indices((ROI_length, ROI_length))
 mask = np.exp(-(((x - mu_x) ** 2) / (2 * sigma_x ** 2) + ((y - mu_y) ** 2) / (2 * sigma_y ** 2)))
 mask = mask / np.max(mask)
 
-start_time = time.time()
-
 start_pt = int(ROI_length/2)
 end_pt = int(roi_size_px-ROI_length/2)
 pts = np.linspace(start_pt, end_pt, patch_num, dtype=int)
 
-pupil_array = np.zeros((patch_num, patch_num, ROI_length, ROI_length))
+object_full = np.zeros((roi_size_px, roi_size_px), dtype=np.complex128)
+weight_map = np.zeros((roi_size_px, roi_size_px))
+pupil_array = np.zeros((patch_num, patch_num, ROI_length, ROI_length), dtype=np.complex128)
 
+
+start_time = time.time()
 for i, center_x in enumerate(pts):
     for j, center_y in enumerate(pts):
         print(f'Processing patch {i*patch_num+j+1}/{patch_num**2}')
         ROI_center =  [center_x, center_y]
-        x_m = x_m[ROI_center[0]-int(ROI_length/2):ROI_center[0]+int(ROI_length/2)]
-        y_m = y_m[ROI_center[1]-int(ROI_length/2):ROI_center[1]+int(ROI_length/2)]
-        patch_img = [im[ROI_center[0]-int(ROI_length/2):ROI_center[0]+int(ROI_length/2), 
-                    ROI_center[1]-int(ROI_length/2):ROI_center[1]+int(ROI_length/2)] for im in img]
+
+        patch_img = [
+            im[ROI_center[0]-int(ROI_length/2):ROI_center[0]+int(ROI_length/2), 
+            ROI_center[1]-int(ROI_length/2):ROI_center[1]+int(ROI_length/2)]
+            for im in img
+        ]
+
         spectrum_guess = ft(np.sqrt(patch_img[0]))
         object_guess = ift(spectrum_guess)
         if recon_alg == 'GS':
-            object_guess, lens_guess = GS_recon(patch_img, sx, sy, object_guess, lens_guess, iters)
+            object_guess, lens_guess = GS_recon(patch_img, sx, sy, object_guess, lens_init.copy(), iters)
         elif recon_alg == 'GN':
-            object_guess, lens_guess = GN_recon(patch_img, X, Y, spectrum_guess, lens_guess, iters)
+            object_guess, lens_guess = GN_recon(patch_img, X, Y, spectrum_guess, lens_init.copy(), iters)
         elif recon_alg == 'EPFR':
-            object_guess, lens_guess = EPFR_recon(patch_img, X, Y, object_guess, lens_guess, iters)
+            object_guess, lens_guess = EPFR_recon(patch_img, X, Y, object_guess, lens_init.copy(), iters)
         else:
             raise ValueError('Invalid reconstruction algorithm') 
         object_full[ROI_center[0]-int(ROI_length/2):ROI_center[0]+int(ROI_length/2),
@@ -274,9 +390,8 @@ end_time = time.time()
 print(f'Full GN reconstruction took {end_time-start_time} seconds')
 
 
-
-np.save(f'{folder}/result/{recon_alg}_full_recon.npy', object_full)    
-np.save(f'{folder}/result/{recon_alg}_full_pupil.npy', pupil_array)
+np.save(f'{folder}/result/{keyword}_{recon_alg}_full_recon.npy', object_full)    
+np.save(f'{folder}/result/{keyword}_{recon_alg}_full_pupil.npy', pupil_array)
         
         
 

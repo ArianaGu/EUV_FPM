@@ -13,13 +13,18 @@ parser = argparse.ArgumentParser(description='WFE correction parameter tuning')
 parser.add_argument('--alpha', type=float, default=1, help='WFE correction parameter')
 args = parser.parse_args()
 
-folder = './real_data/lines2/'
-elliptical_pupil = False                 # Whether to use 0.55 elliptical pupil or 0.33 circular pupil
-pre_process = True                      # Preprocess the data by applying spectrum support and filtering
-equalization = False                     # Enable for real data
-wfe_correction = False                   # k-illumination correction
-data_format = 'npz'                    # 'npz' 'mat' 'img'
-keyword = 'CD60cb'
+folder = './real_data/lines/'
+phase_object = True
+elliptical_pupil = True                 # Whether to use 0.55 elliptical pupil or 0.33 circular pupil
+pre_process = False                      # Preprocess the data by applying spectrum support and filtering
+equalization = False                    # Enable for real data
+wfe_correction = False                  # k-illumination correction
+data_format = 'npz'                     # 'npz' 'mat' 'img'
+save_mat = True
+keyword = 'CD60eb'
+index_to_exclude = [14, 15]                 #[19, 20] for BPRA
+# index_to_exclude = [19, 20]
+
 roi_size_px = 332*2
 use_ROI = True
 ROI_length = 332
@@ -28,6 +33,7 @@ init_option = 'plane'                   # 'zernike' 'plane' 'file'
 file_name = f'{folder}gt_abe.npy'
 
 recon_alg = 'GN'                        # 'GS', 'GN', 'EPFR'
+abe_correction = True
 iters = 100
 swap_dim = False
 
@@ -35,8 +41,10 @@ swap_dim = False
 # wavelength of acquisition
 lambda_m = 13.5e-9
 
-# effective pixel size
-dx_m = 15e-9
+if elliptical_pupil:
+    dx_m = 10.8e-9
+else:
+    dx_m = 15e-9
 # effective field size
 Dx_m = roi_size_px * dx_m
 
@@ -102,7 +110,11 @@ elif data_format == 'npz':
     sx = data['sx']
     sy = data['sy']
     
-    
+if index_to_exclude is not None:
+    img = [img[i] for i in range(len(img)) if i+1 not in index_to_exclude]
+    sx = [sx[i] for i in range(len(sx)) if i+1 not in index_to_exclude]
+    sy = [sy[i] for i in range(len(sy)) if i+1 not in index_to_exclude]
+
 print(f"Reconstructing with {len(img)} images")
     
 if pre_process:
@@ -128,8 +140,6 @@ if pre_process:
         ftTemp = ftTemp * np.abs(ftTemp) / (np.abs(ftTemp) + noiseLevel)
         img[i] = ift(ftTemp * binaryMask) * edgeMask
 
-if swap_dim:
-    sx, sy = sy, sx
     
 if equalization:
     # Equalize each patch
@@ -176,8 +186,14 @@ if use_ROI:
     y_m = y_m[ROI_center[1]-int(ROI_length/2):ROI_center[1]+int(ROI_length/2)]
     img = [i[ROI_center[0]-int(ROI_length/2):ROI_center[0]+int(ROI_length/2), 
              ROI_center[1]-int(ROI_length/2):ROI_center[1]+int(ROI_length/2)] for i in img]
-    X_full = [sx*fc_lens*Dx_m for sx in sx]
-    Y_full = [sy*fc_lens*Dx_m for sy in sy]
+    if elliptical_pupil:
+        a = fc_lens  # semi-major axis
+        b = fc_lens / 2  # semi-minor axis
+        X_full = [sx*a*Dx_m for sx in sx]
+        Y_full = [sy*b*Dx_m for sy in sy]
+    else:
+        X_full = [sx*fc_lens*Dx_m for sx in sx]
+        Y_full = [sy*fc_lens*Dx_m for sy in sy]
     X = [int(x/roi_size_px*ROI_length) for x in X_full]
     Y = [int(y/roi_size_px*ROI_length) for y in Y_full]
      
@@ -187,13 +203,36 @@ if use_ROI:
     df = fs / Nfft
     freq_cpm = np.arange(0, fs, df) - (fs - Nfft % 2 * df) / 2
     Fx, Fy = np.meshgrid(freq_cpm, freq_cpm)
-    FILTER = (Fx**2 + Fy**2) <= fc_lens**2
+    if elliptical_pupil:
+        fc_lens = (np.arcsin(.55/4)/lambda_m)
+        a = fc_lens
+        b = fc_lens / 2
+        FILTER = ((Fx/a)**2 + (Fy/b)**2) <= 1
+        a_ob = a*0.2
+        b_ob = b*0.2
+        FILTER[(Fx/a_ob)**2 + (Fy/b_ob)**2 <= 1] = 0
+    else:
+        fc_lens = (np.arcsin(.33/4)/lambda_m)
+        FILTER = (Fx**2 + Fy**2) <= fc_lens**2
 else:
-    X = [int(x*fc_lens*Dx_m) for x in sx]
-    Y = [int(y*fc_lens*Dx_m) for y in sy]
+    if elliptical_pupil:
+        a = fc_lens
+        b = fc_lens / 2
+        X = [int(x*a*Dx_m) for x in sx]
+        Y = [int(y*b*Dx_m) for y in sy]
+    else:
+        X = [int(x*fc_lens*Dx_m) for x in sx]
+        Y = [int(y*fc_lens*Dx_m) for y in sy]
+
+
+if swap_dim:
+    X, Y = Y, X
 
 lens_init = get_lens_init(FILTER, init_option, file_name)
-spectrum_guess = ft(np.sqrt(img[0]))
+if phase_object is True:
+    spectrum_guess = ft(np.exp(1j*np.pi*np.sqrt(img[0])/np.max(np.sqrt(img[0]))))
+else:
+    spectrum_guess = ft(np.sqrt(img[0]))
 object_guess = ift(spectrum_guess)
 lens_guess = np.complex128(lens_init)
 
@@ -208,11 +247,8 @@ if recon_alg == 'GS':
             S_n = object_guess
             S_p = ft(S_n)
 
-            X0 = round(sx[idx]*fc_lens*Dx_m)
-            Y0 = round(sy[idx]*fc_lens*Dx_m)
-
-            mask = circshift2(FILTER, X0, Y0)
-            aberrated_mask = circshift2(lens_guess, X0, Y0)
+            mask = circshift2(FILTER, X[idx], Y[idx])
+            aberrated_mask = circshift2(lens_guess, X[idx], Y[idx])
             phi_n = aberrated_mask * S_p
             Phi_n = ift(phi_n)
             Phi_np = np.sqrt(img[idx]) * np.exp(1j*np.angle(Phi_n))
@@ -278,8 +314,9 @@ elif recon_alg == 'GN':
             O1 = downsamp(O, cen, Np)
             dO = step_size * 1 / np.max(np.abs(P)) * np.abs(P) * np.conj(P) * dPsi / (np.abs(P) ** 2 + alpha)
             O[int(start_row):int(end_row), int(start_col):int(end_col)] += dO
-            dP = 1 / Omax * (np.abs(O1) * np.conj(O1)) * dPsi / (np.abs(O1) ** 2 + beta) * FILTER
-            P += dP
+            if abe_correction:
+                dP = 1 / Omax * (np.abs(O1) * np.conj(O1)) * dPsi / (np.abs(O1) ** 2 + beta) * FILTER
+                P += dP
             
     end_time = time.time()
     object_guess = ift(O)
@@ -327,9 +364,11 @@ elif recon_alg == 'EPFR':
 if not os.path.exists(f'{folder}/result'):
     os.makedirs(f'{folder}/result')
 
-np.save(f'{folder}/result/{recon_alg}_recon.npy', object_guess)
-np.save(f'{folder}/result/{recon_alg}_abe.npy', np.angle(lens_guess)*FILTER)
+np.save(f'{folder}/result/{keyword}_{recon_alg}_recon.npy', object_guess)
+np.save(f'{folder}/result/{keyword}_{recon_alg}_abe.npy', np.angle(lens_guess)*FILTER)
 
+if save_mat:
+    scipy.io.savemat(f'{folder}/result/{keyword}_{recon_alg}_recon.mat', {'obj': object_guess, 'pupil_phase': np.angle(lens_guess)*FILTER}) 
 
 plt.imshow(np.abs(object_guess), extent=[x_m[0]*1e9, x_m[-1]*1e9, y_m[0]*1e9, y_m[-1]*1e9], cmap='gray')
 plt.xlabel('x position (nm)')
@@ -353,7 +392,7 @@ plt.ylabel('y position (nm)')
 plt.title(f'{recon_alg} reconstruction (phase)')
 plt.savefig(f'{folder}/result/obj_recon_phase.png', bbox_inches='tight')
 
-plt.imshow(np.abs(lens_guess), cmap='gray')
+plt.imshow(np.abs(lens_guess)*FILTER, cmap='gray')
 plt.title(f'{recon_alg} pupil reconstruction (amplitude)')
 plt.savefig(f'{folder}/result/pupil_recon_amp.png', bbox_inches='tight')
 
