@@ -5,6 +5,7 @@ import os
 import glob
 import scipy.io
 import time
+import yaml
 from utils import *
 
 # take arguments from command line
@@ -13,29 +14,30 @@ parser = argparse.ArgumentParser(description='WFE correction parameter tuning')
 parser.add_argument('--alpha', type=float, default=1, help='WFE correction parameter')
 args = parser.parse_args()
 
-folder = './real_data/lines/'
-phase_object = True
-elliptical_pupil = True                 # Whether to use 0.55 elliptical pupil or 0.33 circular pupil
-pre_process = False                      # Preprocess the data by applying spectrum support and filtering
-equalization = False                    # Enable for real data
-wfe_correction = False                  # k-illumination correction
-data_format = 'npz'                     # 'npz' 'mat' 'img'
-save_mat = True
-keyword = 'CD60eb'
-index_to_exclude = [14, 15]                 #[19, 20] for BPRA
-# index_to_exclude = [19, 20]
+config_path = './configs/recon/CD60eb.yaml'
+with open(config_path, 'r') as f:
+    config = yaml.safe_load(f)
 
-roi_size_px = 332*2
-use_ROI = True
-ROI_length = 332
-ROI_center =  [int(roi_size_px/2), int(roi_size_px/2)]
-init_option = 'plane'                   # 'zernike' 'plane' 'file'
-file_name = f'{folder}gt_abe.npy'
-
-recon_alg = 'GN'                        # 'GS', 'GN', 'EPFR'
-abe_correction = True
-iters = 100
-swap_dim = False
+# Unpack configuration settings
+folder = config["folder"]
+phase_object = config["phase_object"]
+elliptical_pupil = config["elliptical_pupil"]
+pre_process = config["pre_process"]
+equalization = config["equalization"]
+wfe_correction = config["wfe_correction"]
+data_format = config["data_format"]
+keyword = config["keyword"]
+index_to_exclude = config["index_to_exclude"]
+roi_size_px = config["roi_size_px"]
+use_ROI = config["use_ROI"]
+ROI_length = config["ROI_length"]
+ROI_center = config["ROI_center"]
+init_option = config["init_option"]
+file_name = config["file_name"]
+recon_alg = config["recon_alg"]
+abe_correction = config["abe_correction"]
+iters = config["iters"]
+swap_dim = config["swap_dim"]
 
 #%% Set up parameters
 # wavelength of acquisition
@@ -364,11 +366,15 @@ elif recon_alg == 'EPFR':
 if not os.path.exists(f'{folder}/result'):
     os.makedirs(f'{folder}/result')
 
-np.save(f'{folder}/result/{keyword}_{recon_alg}_recon.npy', object_guess)
-np.save(f'{folder}/result/{keyword}_{recon_alg}_abe.npy', np.angle(lens_guess)*FILTER)
+ideal_FILTER = FILTER
+for i in range(len(img)):
+    ideal_FILTER = ideal_FILTER | circshift2(FILTER, -X[i], -Y[i])
 
-if save_mat:
-    scipy.io.savemat(f'{folder}/result/{keyword}_{recon_alg}_recon.mat', {'obj': object_guess, 'pupil_phase': np.angle(lens_guess)*FILTER}) 
+scipy.io.savemat(f'{folder}/result/{keyword}_{recon_alg}_recon.mat', 
+                    {'obj': object_guess, 
+                    'pupil': lens_guess,
+                    'ideal_FILTER': ideal_FILTER,
+                    }) 
 
 plt.imshow(np.abs(object_guess), extent=[x_m[0]*1e9, x_m[-1]*1e9, y_m[0]*1e9, y_m[-1]*1e9], cmap='gray')
 plt.xlabel('x position (nm)')

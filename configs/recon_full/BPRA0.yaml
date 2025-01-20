@@ -1,0 +1,21 @@
+folder: "./real_data/BPRA/"
+phase_object: false
+elliptical_pupil: false
+pre_process: false
+equalization: false
+wfe_correction: false
+wfe_alpha: 0.1
+data_format: "npz"
+keyword: "BPRA0"
+index_to_exclude:
+  - 19
+  - 20
+roi_size_px: 664
+init_option: "plane"
+file_name: "gt_abe.npy"
+ROI_length: 256
+patch_num: 4
+recon_alg: "GN"
+abe_correction: true
+iters: 25
+swap_dim: false

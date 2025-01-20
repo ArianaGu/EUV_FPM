@@ -4,36 +4,38 @@ from PIL import Image
 import os
 import glob
 import scipy.io
+import yaml
+import argparse
 import time
 from utils import *
 # import cv2
 # from cv2 import seamlessClone
 
 
-folder = './real_data/lines/'
-phase_object = True
-elliptical_pupil = True                 # Whether to use 0.55 elliptical pupil or 0.33 circular pupil
-pre_process = False                      # Preprocess the data by applying spectrum support and filtering
-equalization = False                    # Enable for real data
-wfe_correction = False                  # k-illumination correction
-wfe_alpha = 0.1
-data_format = 'npz'                     # 'npz' 'mat' 'img'
-save_mat = True
-keyword = 'CD60eb'
-index_to_exclude = [14, 15]                 #[19, 20] for BPRA
-index_to_exclude = [19, 20] 
+config_path = './configs/recon_full/BPRA0_big.yaml'
+with open(config_path, 'r') as f:
+    config = yaml.safe_load(f)  # returns a dict
+# Unpack config
+folder = config["folder"]
+phase_object = config["phase_object"]
+elliptical_pupil = config["elliptical_pupil"]
+pre_process = config["pre_process"]
+equalization = config["equalization"]
+wfe_correction = config["wfe_correction"]
+wfe_alpha = config["wfe_alpha"]
+data_format = config["data_format"]
+keyword = config["keyword"]
+index_to_exclude = config["index_to_exclude"]
+roi_size_px = config["roi_size_px"]
+init_option = config["init_option"]
+file_name = config["file_name"]
+ROI_length = config["ROI_length"]
+patch_num = config["patch_num"]
+recon_alg = config["recon_alg"]
+abe_correction = config["abe_correction"]
+iters = config["iters"]
+swap_dim = config["swap_dim"]
 
-roi_size_px = 332*2
-init_option = 'plane'                   # 'zernike' 'plane' 'file'
-file_name = f'{folder}gt_abe.npy'
-
-
-ROI_length = 256
-patch_num = 3
-recon_alg = 'GN'                        # 'GS', 'GN', 'EPFR'
-abe_correction = True
-iters = 25
-swap_dim = False
 
 #%% Set up parameters
 # wavelength of acquisition
@@ -146,8 +148,9 @@ if equalization:
         # calculate the energy of central patch
         cen_energy = np.sum(img[0][patch_size: 2*patch_size, patch_size: 2*patch_size])
         # equalize the energy of all patches
-        for i in range(3):
-            for j in range(3):
+        N_patch = roi_size_px // patch_size
+        for i in range(N_patch):
+            for j in range(N_patch):
                 im[i*patch_size: (i+1)*patch_size, j*patch_size: (j+1)*patch_size] *= cen_energy / np.sum(
                     im[i*patch_size: (i+1)*patch_size, j*patch_size: (j+1)*patch_size])
     # Equalize the energy of all images
@@ -389,14 +392,16 @@ object_full = object_full / weight_map
 end_time = time.time()
 print(f'Full GN reconstruction took {end_time-start_time} seconds')
 
+ideal_FILTER = FILTER
+for i in range(len(img)):
+    ideal_FILTER = ideal_FILTER | circshift2(FILTER, -X[i], -Y[i])
 
-np.save(f'{folder}/result/{keyword}_{recon_alg}_full_recon.npy', object_full)    
-np.save(f'{folder}/result/{keyword}_{recon_alg}_full_pupil.npy', pupil_array)
+scipy.io.savemat(f'{folder}/result/{keyword}_{recon_alg}_full_recon.mat', 
+                    {'obj': object_full, 
+                    'pupil_array': pupil_array,
+                    'ideal_FILTER': ideal_FILTER,
+                    }) 
         
-        
-
-
-
 
 
 
