@@ -4,6 +4,7 @@ from PIL import Image
 import os
 import glob
 import scipy.io
+from scipy.ndimage import gaussian_filter
 import time
 import yaml
 from utils import *
@@ -22,6 +23,7 @@ with open(config_path, 'r') as f:
 folder = config["folder"]
 phase_object = config["phase_object"]
 elliptical_pupil = config["elliptical_pupil"]
+pupil_edge_soften = config["pupil_edge_soften"]
 pre_process = config["pre_process"]
 equalization = config["equalization"]
 wfe_correction = config["wfe_correction"]
@@ -73,9 +75,41 @@ if elliptical_pupil:
     FILTER[(Fx/a_ob)**2 + (Fy/b_ob)**2 <= 1] = 0
 else:
     fc_lens = (np.arcsin(.33/4)/lambda_m)
+    a = fc_lens
+    b = fc_lens
     FILTER = (Fx**2 + Fy**2) <= fc_lens**2
 
+# soften the edge of the pupil
+if pupil_edge_soften > 0:
+    dist_map = (Fx / a)**2 + (Fy / b)**2
+    boundary_val = 1.0
+    d = dist_map - boundary_val
+    delta = boundary_val * pupil_edge_soften
+    
+    # Hard inside vs. outside
+    inside_mask = (d < -delta)
+    outside_mask = (d > delta)
+    transition_mask = ~(inside_mask | outside_mask)
 
+    FILTER = FILTER.astype(float)  # Ensure we can store fractional values
+    FILTER[inside_mask] = 1.0
+    FILTER[outside_mask] = 0.0
+
+    # Raised-cosine for the transition zone
+    # Map d in [-delta, +delta] → t in [0, 1]
+    t = (d[transition_mask] + delta) / (2 * delta)  # 0..1
+    FILTER[transition_mask] = 0.5 * (1 + np.cos(np.pi * t))
+    
+    if elliptical_pupil:
+        a_ob = a*0.2
+        b_ob = b*0.2
+        FILTER[(Fx/a_ob)**2 + (Fy/b_ob)**2 <= 1] = 0
+
+plt.figure()
+plt.imshow(FILTER, cmap='gray')
+plt.axis('off')
+plt.savefig(f'{folder}/result/pupil.png', bbox_inches='tight')
+    
 #%% Load data
 if data_format == 'img':
     # Find all .png files in the folder

@@ -1,6 +1,7 @@
 folder: "./real_data/lines/"
 phase_object: true
 elliptical_pupil: true                  # Whether to use 0.55 elliptical pupil or 0.33 circular pupil
+pupil_edge_soften: 0.2               # Softening factor for pupil edge
 pre_process: false                      # Preprocess the data by applying spectrum support and filtering
 equalization: false                     # Enable for real data
 wfe_correction: false                   # k-illumination correction
@@ -17,13 +18,13 @@ use_ROI: true
 ROI_length: 332
 ROI_center:
   - 332                                 # int(roi_size_px / 2)
-  - 332
+  - 166
 
 init_option: "plane"                    # 'zernike', 'plane', 'file'
 file_name: "./real_data/lines/gt_abe.npy"
 
 recon_alg: "GN"                         # 'GS', 'GN', 'EPFR'
 abe_correction: true
-iters: 25
+iters: 100
 swap_dim: false
 
