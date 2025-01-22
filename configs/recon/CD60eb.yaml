@@ -1,7 +1,7 @@
 folder: "./real_data/lines/"
 phase_object: true
 elliptical_pupil: true                  # Whether to use 0.55 elliptical pupil or 0.33 circular pupil
-pupil_edge_soften: 0.2               # Softening factor for pupil edge
+pupil_edge_soften: 0.2                  # Softening factor for pupil edge
 pre_process: false                      # Preprocess the data by applying spectrum support and filtering
 equalization: false                     # Enable for real data
 wfe_correction: false                   # k-illumination correction

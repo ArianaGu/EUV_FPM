@@ -1,0 +1,25 @@
+folder: "./real_data/BPRA/"
+phase_object: false
+elliptical_pupil: false
+pupil_edge_soften: 0
+pre_process: false
+equalization: false   # does not work well, appears patchy
+wfe_correction: false
+wfe_alpha: 0.1
+data_format: "npz"
+keyword: "BPRA0_big"
+index_to_exclude:
+  - 19
+  - 20
+roi_size_px: 1328
+use_ROI: true
+ROI_length: 332
+ROI_center:
+  - 664                              
+  - 664
+init_option: "plane"                  
+file_name: "./real_data/lines/gt_abe.npy"
+recon_alg: "GN"           
+abe_correction: true
+iters: 100
+swap_dim: false
