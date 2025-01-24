@@ -15,7 +15,7 @@ parser = argparse.ArgumentParser(description='WFE correction parameter tuning')
 parser.add_argument('--alpha', type=float, default=1, help='WFE correction parameter')
 args = parser.parse_args()
 
-config_path = './configs/recon/BPRA0_big.yaml'
+config_path = './configs/recon/BPRP.yaml'
 with open(config_path, 'r') as f:
     config = yaml.safe_load(f)
 

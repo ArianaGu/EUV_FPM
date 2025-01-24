@@ -1,10 +1,11 @@
 folder: "./real_data/lines/"
 phase_object: true
 elliptical_pupil: true                  # Whether to use 0.55 elliptical pupil or 0.33 circular pupil
-pupil_edge_soften: 0.2                  # Softening factor for pupil edge
+pupil_edge_soften: 0                    # Softening factor for pupil edge
 pre_process: false                      # Preprocess the data by applying spectrum support and filtering
 equalization: false                     # Enable for real data
 wfe_correction: false                   # k-illumination correction
+wfe_alpha: 0.1                          # Regularization parameter for WFE correction
 data_format: "npz"                      # 'npz', 'mat', 'img'
 keyword: "CD60eb"
 
@@ -17,8 +18,8 @@ roi_size_px: 664                        # 332 * 2
 use_ROI: true
 ROI_length: 332
 ROI_center:
-  - 332                                 # int(roi_size_px / 2)
-  - 166
+  - 332                                 # int(roi_size_px / 2) 498
+  - 332                                 # int(roi_size_px / 2) 166  
 
 init_option: "plane"                    # 'zernike', 'plane', 'file'
 file_name: "./real_data/lines/gt_abe.npy"
