@@ -12,7 +12,7 @@ from utils import *
 # from cv2 import seamlessClone
 
 
-config_path = './configs/recon_full/BPRA0_big.yaml'
+config_path = './configs/recon_full/BPRA0.yaml'
 with open(config_path, 'r') as f:
     config = yaml.safe_load(f)  # returns a dict
 # Unpack config
@@ -358,35 +358,63 @@ pts = np.linspace(start_pt, end_pt, patch_num, dtype=int)
 object_full = np.zeros((roi_size_px, roi_size_px), dtype=np.complex128)
 weight_map = np.zeros((roi_size_px, roi_size_px))
 pupil_array = np.zeros((patch_num, patch_num, ROI_length, ROI_length), dtype=np.complex128)
+lens_guess = lens_init.copy()
 
+def spiral_pts(pts):
+    """
+    Given a 1D array of coordinates (pts), construct a 2D grid
+    and return the (x,y) patch centers in an order that goes
+    from the center outward in a spiral-like pattern.
+    """
+    N = len(pts)
+    cx = (N - 1) / 2.0
+    cy = (N - 1) / 2.0
+    
+    coords = []
+    for i in range(N):
+        for j in range(N):
+            r = np.hypot(i - cx, j - cy)
+            theta = np.arctan2(j - cy, i - cx)
+            coords.append((r, theta, i, j))
+    
+    coords.sort(key=lambda x: (x[0], x[1]))
+    
+    spiral_order = []
+    for (_, _, i, j) in coords:
+        spiral_order.append((i, j, pts[i], pts[j]))
+    
+    return spiral_order
+
+
+# Get the spiral (center-out) sequence of (x,y) centers
+spiral_list = spiral_pts(pts)
 
 start_time = time.time()
-for i, center_x in enumerate(pts):
-    for j, center_y in enumerate(pts):
-        print(f'Processing patch {i*patch_num+j+1}/{patch_num**2}')
-        ROI_center =  [center_x, center_y]
+for n, (i, j, center_x, center_y) in enumerate(spiral_list):
+    print(f"Processing patch {n+1}/{patch_num**2}: (i,j)=({i},{j}), ROI=({center_x},{center_y})")
+    ROI_center = [center_x, center_y]
+    
+    patch_img = [
+        im[ROI_center[0]-int(ROI_length/2):ROI_center[0]+int(ROI_length/2), 
+        ROI_center[1]-int(ROI_length/2):ROI_center[1]+int(ROI_length/2)]
+        for im in img
+    ]
 
-        patch_img = [
-            im[ROI_center[0]-int(ROI_length/2):ROI_center[0]+int(ROI_length/2), 
-            ROI_center[1]-int(ROI_length/2):ROI_center[1]+int(ROI_length/2)]
-            for im in img
-        ]
-
-        spectrum_guess = ft(np.sqrt(patch_img[0]))
-        object_guess = ift(spectrum_guess)
-        if recon_alg == 'GS':
-            object_guess, lens_guess = GS_recon(patch_img, sx, sy, object_guess, lens_init.copy(), iters)
-        elif recon_alg == 'GN':
-            object_guess, lens_guess = GN_recon(patch_img, X, Y, spectrum_guess, lens_init.copy(), iters)
-        elif recon_alg == 'EPFR':
-            object_guess, lens_guess = EPFR_recon(patch_img, X, Y, object_guess, lens_init.copy(), iters)
-        else:
-            raise ValueError('Invalid reconstruction algorithm') 
-        object_full[ROI_center[0]-int(ROI_length/2):ROI_center[0]+int(ROI_length/2),
-                    ROI_center[1]-int(ROI_length/2):ROI_center[1]+int(ROI_length/2)] += object_guess * mask
-        weight_map[ROI_center[0]-int(ROI_length/2):ROI_center[0]+int(ROI_length/2),
-                    ROI_center[1]-int(ROI_length/2):ROI_center[1]+int(ROI_length/2)] += mask
-        pupil_array[i, j] = lens_guess
+    spectrum_guess = ft(np.sqrt(patch_img[0]))
+    object_guess = ift(spectrum_guess)
+    if recon_alg == 'GS':
+        object_guess, lens_guess = GS_recon(patch_img, sx, sy, object_guess, lens_init.copy(), iters)
+    elif recon_alg == 'GN':
+        object_guess, lens_guess = GN_recon(patch_img, X, Y, spectrum_guess, lens_init.copy(), iters)
+    elif recon_alg == 'EPFR':
+        object_guess, lens_guess = EPFR_recon(patch_img, X, Y, object_guess, lens_init.copy(), iters)
+    else:
+        raise ValueError('Invalid reconstruction algorithm') 
+    object_full[ROI_center[0]-int(ROI_length/2):ROI_center[0]+int(ROI_length/2),
+                ROI_center[1]-int(ROI_length/2):ROI_center[1]+int(ROI_length/2)] += object_guess * mask
+    weight_map[ROI_center[0]-int(ROI_length/2):ROI_center[0]+int(ROI_length/2),
+                ROI_center[1]-int(ROI_length/2):ROI_center[1]+int(ROI_length/2)] += mask
+    pupil_array[i, j] = lens_guess
 
 object_full = object_full / weight_map
 end_time = time.time()

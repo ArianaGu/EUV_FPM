@@ -15,7 +15,8 @@ parser = argparse.ArgumentParser(description='WFE correction parameter tuning')
 parser.add_argument('--alpha', type=float, default=1, help='WFE correction parameter')
 args = parser.parse_args()
 
-config_path = './configs/recon/BPRP.yaml'
+config_name = 'CD60eb'
+config_path = f'./configs/recon/{config_name}.yaml'
 with open(config_path, 'r') as f:
     config = yaml.safe_load(f)
 
@@ -404,7 +405,7 @@ ideal_FILTER = FILTER
 for i in range(len(img)):
     ideal_FILTER = ideal_FILTER | circshift2(FILTER, -X[i], -Y[i])
 
-scipy.io.savemat(f'{folder}/result/{keyword}_{recon_alg}_recon.mat', 
+scipy.io.savemat(f'{folder}/result/{config_name}_{recon_alg}_recon.mat', 
                     {'obj': object_guess, 
                     'pupil': lens_guess,
                     'ideal_FILTER': ideal_FILTER,

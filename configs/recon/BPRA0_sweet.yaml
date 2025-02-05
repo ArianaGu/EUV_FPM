@@ -7,14 +7,16 @@ equalization: false
 wfe_correction: false
 wfe_alpha: 0.1
 data_format: "npz"
-keyword: "BPRP"
-index_to_exclude: ~
-roi_size_px: 1992
-use_ROI: true
-ROI_length: 256
-ROI_center:         # 128, 350 for top-left corner
-  - 128                     
-  - 350
+keyword: "BPRA0_sweet"
+index_to_exclude:
+  - 19
+  - 20
+roi_size_px: 332
+use_ROI: false
+ROI_length: 332
+ROI_center:
+  - 332                              
+  - 332
 init_option: "plane"                  
 file_name: "./real_data/lines/gt_abe.npy"
 recon_alg: "GN"           
