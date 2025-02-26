@@ -15,7 +15,7 @@ parser = argparse.ArgumentParser(description='WFE correction parameter tuning')
 parser.add_argument('--alpha', type=float, default=1, help='WFE correction parameter')
 args = parser.parse_args()
 
-config_name = 'CD60eb'
+config_name = 'BPRP'
 config_path = f'./configs/recon/{config_name}.yaml'
 with open(config_path, 'r') as f:
     config = yaml.safe_load(f)
@@ -105,6 +105,10 @@ if pupil_edge_soften > 0:
         a_ob = a*0.2
         b_ob = b*0.2
         FILTER[(Fx/a_ob)**2 + (Fy/b_ob)**2 <= 1] = 0
+
+
+if not os.path.exists(f'{folder}/result'):
+    os.makedirs(f'{folder}/result')
 
 plt.figure()
 plt.imshow(FILTER, cmap='gray')
@@ -398,8 +402,6 @@ elif recon_alg == 'EPFR':
     end_time = time.time()
     print(f'EPFR reconstruction took {end_time-start_time} seconds')
 #%% Display
-if not os.path.exists(f'{folder}/result'):
-    os.makedirs(f'{folder}/result')
 
 ideal_FILTER = FILTER
 for i in range(len(img)):

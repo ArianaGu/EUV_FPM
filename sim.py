@@ -10,7 +10,7 @@ from PIL import Image
 parser = argparse.ArgumentParser()
 parser.add_argument('-o', '--obj', type=str, default='bprp', choices=['bprp', 'anime'], help='object type')
 parser.add_argument('-im', '--illumination_mode', type=str, default='exp', choices=['grid', 'apic', 'exp'], help='illumination mode')
-parser.add_argument('-am', '--aberration_mode', type=str, default='plane', choices=['exp', 'plane'], help='aberration mode')
+parser.add_argument('-am', '--aberration_mode', type=str, default='exp', choices=['exp', 'plane'], help='aberration mode')
 parser.add_argument('-kwd', '--keyword', type=str, default='bprp_abe00', help='used for saving the simulated data')
 parser.add_argument('-f', '--folder', type=str, default='./sim_data/', help='folder to save the simulated data')
 parser.add_argument('-ip', '--illumination_perturb', type=float, default=0, help='perturbation of the illumination position')
@@ -41,12 +41,8 @@ freq_cpm = np.arange(0, fs, df) - (fs - Nfft % 2 * df) / 2
 
 # frequency cut-off of the lens (0.33 4xNA lens)
 fc_lens = (np.arcsin(.33/4)/lambda_m)
-# lens pupil filter in reciprocal space
 Fx, Fy = np.meshgrid(freq_cpm, freq_cpm)
-# FILTER = (Fx**2 + Fy**2) <= fc_lens**2
-a = fc_lens  # semi-major axis
-b = fc_lens / 2  # semi-minor axis
-FILTER = ((Fx/a)**2 + (Fy/b)**2) <= 1
+FILTER = (Fx**2 + Fy**2) <= fc_lens**2
 
 
 #%% Load calibrated aberration data
@@ -55,7 +51,7 @@ aberr_all = mat['FOV_ABERR']
 
 #%% Create simulate object
 if options.obj == 'bprp':
-    pattern = bprp(17, 17)
+    pattern = bprp(19, 19)
 
     # BPRP size 17*60nm, corresponding to 17*4 pixels
     magnified_pattern = np.kron(pattern+1, np.ones((4, 4)))
@@ -104,7 +100,7 @@ elif options.illumination_mode == 'apic':
     for angle in angles:
         meas.append([np.cos(angle)*0.99, np.sin(angle)*0.99])
 elif options.illumination_mode == 'exp':
-    file_name = 'real_data/enlarged_tile/meas.pkl'
+    file_name = 'real_data/BPRA/BPRA0_meas.pkl'
     import pickle
     with open(file_name, 'rb') as f:
         meas = pickle.load(f)
@@ -133,8 +129,12 @@ elif options.aberration_mode == 'plane':
     abe_FILTER = FILTER
 else:
     raise NotImplementedError
-    
+
+sxs = []
+sys = []
 for sx, sy in meas:
+    sxs.append(sx)
+    sys.append(sy)
     sx_exp = sx + options.illumination_perturb*np.random.randn()
     sy_exp = sy + options.illumination_perturb*np.random.randn()
     X0 = round(sx_exp*fc_lens*Dx_m)
@@ -153,8 +153,9 @@ for sx, sy in meas:
         img_pil = Image.fromarray(np.uint8(img_angle))
         img_pil.save(filename)
 
-np.save(f'{folder}gt.npy', obj)
-np.save(f'{folder}gt_abe.npy', abe)
+imgs = np.stack(I_low_stack, axis=0)
+np.savez(f"{folder}{options.keyword}.npz", imgs=imgs, sx=np.array(sxs), sy=np.array(sys), gt_obj=obj, gt_CTF=abe_FILTER)
+
 I_low = np.stack(I_low_stack, axis=2)
 na_calib = np.array(na_calib)
 freqXY_calib = na_calib*na_rp_cal/na_cal+roi_size_px/2+1 # Shift to the center of the FOV

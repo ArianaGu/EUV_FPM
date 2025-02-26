@@ -12,7 +12,7 @@ from utils import *
 # from cv2 import seamlessClone
 
 
-config_path = './configs/recon_full/BPRA0.yaml'
+config_path = './configs/recon_full/BPRP.yaml'
 with open(config_path, 'r') as f:
     config = yaml.safe_load(f)  # returns a dict
 # Unpack config
@@ -214,6 +214,8 @@ print('FILTER shape:', FILTER.shape)
 if swap_dim:
     X, Y = Y, X
 
+if not os.path.exists(f'{folder}/result'):
+    os.makedirs(f'{folder}/result')
 
 #%% Crop ROI
 def GN_recon(patch_img, X, Y, spectrum_guess, lens_guess, iters):
