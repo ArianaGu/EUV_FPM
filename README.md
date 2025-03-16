@@ -3,7 +3,9 @@
 
 Presented at *SPIE Optical and EUV Nanolithography XXXVIII*, February 26, 2025. 
 
-Preprint manuscript and example datasets are available upon reasonable request. 
+[**[Preprint manuscript]**](https://drive.google.com/file/d/15uHPY2EoaX3ekImtQLe9JyPPO2IklNt0/view?usp=sharing)  
+
+Example datasets are available upon reasonable request. 
 Contact: chaoying_gu@berkeley.edu
 
 ## **Basic Usage**  
